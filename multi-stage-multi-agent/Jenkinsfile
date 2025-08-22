@@ -1,21 +1,57 @@
 pipeline {
-  agent none
-  stages {
-    stage('Back-end') {
-      agent {
-        docker { image 'maven:3.8.1-adoptopenjdk-11' }
-      }
-      steps {
-        sh 'mvn --version'
-      }
+    agent any
+
+    environment {
+        BACKEND_DIR = "${env.WORKSPACE}/multi-stage-multi-agent"
+        FRONTEND_DIR = "${env.WORKSPACE}/multi-stage-multi-agent/frontend"
     }
-    stage('Front-end') {
-      agent {
-        docker { image 'node:16-alpine' }
-      }
-      steps {
-        sh 'node --version'
-      }
+
+    stages {
+        stage('Back-end Build & Run') {
+            steps {
+                echo "Building and running Flask back-end..."
+                dir("${BACKEND_DIR}") {
+                    sh '''
+                        # Build Docker image for Flask app
+                        docker build -t flask-backend .
+
+                        # Stop old container if it exists
+                        docker rm -f flask-backend-container || true
+
+                        # Run container persistently on port 5000
+                        docker run -d --name flask-backend-container -p 5000:5000 flask-backend
+                    '''
+                }
+            }
+        }
+
+        stage('Front-end Build & Run') {
+            steps {
+                echo "Building and running Node front-end..."
+                dir("${FRONTEND_DIR}") {
+                    sh '''
+                        # Build Docker image for front-end
+                        docker build -t frontend .
+
+                        # Stop old container if it exists
+                        docker rm -f frontend-container || true
+
+                        # Run container persistently on port 3000
+                        docker run -d --name frontend-container -p 3000:3000 frontend
+                    '''
+                }
+            }
+        }
     }
-  }
+
+    post {
+        success {
+            echo "Pipeline finished successfully!"
+            echo "Access Flask back-end: http://<EC2_PUBLIC_IP>:5000"
+            echo "Access front-end: http://<EC2_PUBLIC_IP>:3000"
+        }
+        failure {
+            echo "Pipeline failed. Check console output for errors."
+        }
+    }
 }
