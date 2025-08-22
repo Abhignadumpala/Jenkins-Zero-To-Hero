@@ -1,57 +1,52 @@
 pipeline {
-  agent any
+    agent any
 
-  environment {
-    APP_NAME = "flask-demo"
-    DOCKER_IMAGE = "flask-demo:latest"
-  }
-
-  stages {
-    stage('Checkout') {
-      steps {
-        echo "Pulling code from repository..."
-        checkout scm
-      }
+    environment {
+        WORKSPACE_DIR = "${env.WORKSPACE}/multi-stage-multi-agent/demo-multi-stage"
     }
 
-    stage('Install Dependencies') {
-      agent {
-        docker { image 'python:3.9-slim' }
-      }
-      steps {
-        echo "Installing Python dependencies..."
-        sh 'pip install -r requirements.txt'
-      }
+    stages {
+        stage('Back-end Build & Run') {
+            agent {
+                docker { image 'python:3.11' }
+            }
+            steps {
+                echo "Building and running Flask back-end..."
+                dir("${WORKSPACE_DIR}") {
+                    sh '''
+                        # Build Docker image for Flask app
+                        docker build -t flask-backend .
+
+                        # Stop any old container
+                        docker rm -f flask-backend-container || true
+
+                        # Run container persistently
+                        docker run -d --name flask-backend-container -p 5000:5000 flask-backend
+                    '''
+                }
+            }
+        }
+
+        stage('Front-end Build & Run') {
+            agent {
+                docker { image 'node:16-alpine' }
+            }
+            steps {
+                echo "Building and running Node.js front-end..."
+                dir("${WORKSPACE_DIR}/frontend") {
+                    sh '''
+                        docker build -t frontend .
+                        docker rm -f frontend-container || true
+                        docker run -d --name frontend-container -p 3000:3000 frontend
+                    '''
+                }
+            }
+        }
     }
 
-    stage('Run Tests') {
-      agent {
-        docker { image 'python:3.9-slim' }
-      }
-      steps {
-        echo "Running unit tests..."
-        sh 'pytest || echo "No tests found, skipping..."'
-      }
+    post {
+        success {
+            echo "Pipeline finished successfully! Access Flask at port 5000 and front-end at 3000."
+        }
     }
-
-    stage('Build Docker Image') {
-      steps {
-        echo "Building Docker image for ${APP_NAME}..."
-        sh "docker build -t ${DOCKER_IMAGE} ."
-      }
-    }
-
-    stage('Deploy') {
-      steps {
-        echo "Deploying application container..."
-        sh "docker run -d -p 5000:5000 --name ${APP_NAME} ${DOCKER_IMAGE} || echo 'Container may already be running'"
-      }
-    }
-  }
-
-  post {
-    always {
-      echo "Pipeline finished."
-    }
-  }
 }
